@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Modern Quiz Application</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        body { font-family: 'Poppins', sans-serif; margin: 0; padding: 0; }
+        header, footer { background-color: #333; color: #fff; padding: 10px; text-align: center; }
+        main { padding: 20px; }
+        .container { max-width: 800px; margin: auto; }
+        .question-slide { margin-bottom: 20px; }
+        .option { cursor: pointer; padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 5px; }
+        .option.selected { background-color: #2ecc71; color: #fff; }
+        .button-container { margin-top: 20px; }
+        .button-container button { margin: 5px; padding: 10px 20px; border: none; border-radius: 5px; background-color: #3498db; color: #fff; cursor: pointer; }
+        .button-container button:hover { background-color: #2980b9; }
+        .chart-container { margin-top: 20px; }
+        .chart-container canvas { width: 100%; height: 300px; }
+        .scrollable { max-height: 400px; overflow-y: auto; }
+        .score-card, .answer-sheet { display: none; }
+        .score-card.active, .answer-sheet.active { display: block; }
+        .answer-sheet-content { margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Advanced Modern Quiz</h1>
+        <div class="timer" id="timer">00:00</div>
+    </header>
+    <main>
+        <div class="container" id="quiz-container">
+            <h2>Quiz</h2>
+            <div class="question-slide" id="question-slide">
+                <!-- Quiz questions will be inserted here -->
+            </div>
+            <div class="button-container">
+                <button id="back-btn">Back</button>
+                <button id="next-btn">Next</button>
+                <button id="submit-btn">Submit</button>
+            </div>
+        </div>
+        <div id="score-card" class="score-card scrollable">
+            <h2>Score Card</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Correct</th>
+                        <th>Incorrect</th>
+                        <th>Unattempted</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td id="correct-count">0</td>
+                        <td id="incorrect-count">0</td>
+                        <td id="unattempted-count">0</td>
+                    </tr>
+                    <tr>
+                        <td id="correct-total">0</td>
+                        <td id="incorrect-total">0</td>
+                        <td id="unattempted-total">0</td>
+                    </tr>
+                    <tr>
+                        <td colspan="3" id="overall-total">Overall Total Score: 0</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="chart-container">
+                <canvas id="bar-chart"></canvas>
+                <canvas id="pie-chart"></canvas>
+            </div>
+            <div class="button-container">
+                <button id="download-pdf">Download PDF</button>
+                <button id="retry-btn">Retry</button>
+            </div>
+        </div>
+        <div id="answer-sheet" class="answer-sheet scrollable">
+            <h2>Answer Sheet</h2>
+            <div id="answer-sheet-content"></div>
+            <div class="button-container">
+                <button id="retry-all-btn">Retry All</button>
+            </div>
+        </div>
+    </main>
+    <footer>
+        <p>&copy; 2024 Advanced Modern Quiz Application. All rights reserved.</p>
+    </footer>
+
+    <script>
+        let questions = [];
+        let userAnswers = [];
+        let currentQuestionIndex = 0;
+        let timerInterval;
+
+        function startTimer(duration) {
+            let timer = duration;
+            const display = document.getElementById('timer');
+            timerInterval = setInterval(() => {
+                const minutes = Math.floor(timer / 60);
+                const seconds = timer % 60;
+                display.textContent = `${minutes < 10 ? '0' + minutes : minutes}:${seconds < 10 ? '0' + seconds : seconds}`;
+                if (--timer < 0) {
+                    clearInterval(timerInterval);
+                }
+            }, 1000);
+        }
+
+        function stopTimer() {
+            clearInterval(timerInterval);
+        }
+
+        function displayQuestion(index) {
+            const question = questions[index];
+            if (question) {
+                document.getElementById('question-slide').innerHTML = `
+                    <div class="question">${question.Question}</div>
+                    ${question.Options.map((option, i) => `
+                        <div class="option">${option}</div>
+                    `).join('')}
+                `;
+                setupOptionListeners();
+            }
+        }
+
+        function setupOptionListeners() {
+            document.querySelectorAll('.option').forEach((option, index) => {
+                option.addEventListener('click', () => {
+                    document.querySelectorAll('.option').forEach(opt => opt.classList.remove('selected'));
+                    option.classList.add('selected');
+                    userAnswers[currentQuestionIndex] = option.textContent;
+                });
+            });
+        }
+
+        function calculateScore() {
+            stopTimer();
+            const correctAnswers = questions.filter((q, i) => userAnswers[i] === q.CorrectAnswer).length;
+            const incorrectAnswers = questions.length - correctAnswers - userAnswers.filter(ans => ans === undefined).length;
+            const unattemptedAnswers = userAnswers.filter(ans => ans === undefined).length;
+
+            const correctScore = correctAnswers * 2;
+            const incorrectScore = incorrectAnswers * -0.5;
+            const overallScore = correctScore + incorrectScore;
+
+            document.getElementById('correct-count').textContent = correctAnswers;
+            document.getElementById('incorrect-count').textContent = incorrectAnswers;
+            document.getElementById('unattempted-count').textContent = unattemptedAnswers;
+
+            document.getElementById('correct-total').textContent = correctScore;
+            document.getElementById('incorrect-total').textContent = incorrectScore;
+            document.getElementById('unattempted-total').textContent = 0; // Unattempted doesn't affect score
+
+            document.getElementById('overall-total').textContent = `Overall Total Score: ${overallScore}`;
+
+            const ctxBar = document.getElementById('bar-chart').getContext('2d');
+            new Chart(ctxBar, {
+                type: 'bar',
+                data: {
+                    labels: ['Correct', 'Incorrect'],
+                    datasets: [{
+                        data: [correctAnswers, incorrectAnswers],
+                        backgroundColor: ['#2ecc71', '#e74c3c']
+                    }]
+                }
+            });
+
+            const ctxPie = document.getElementById('pie-chart').getContext('2d');
+            new Chart(ctxPie, {
+                type: 'pie',
+                data: {
+                    labels: ['Correct', 'Incorrect', 'Unattempted'],
+                    datasets: [{
+                        data: [correctAnswers, incorrectAnswers, unattemptedAnswers],
+                        backgroundColor: ['#2ecc71', '#e74c3c', '#3498db']
+                    }]
+                }
+            });
+        }
+
+        function displayAnswerSheet() {
+            const answerSheetContent = questions.map((q, i) => `
+                <div class="question">
+                    <p><strong>Question:</strong> ${q.Question}</p>
+                    <p><strong>Right Answer:</strong> ${q.CorrectAnswer}</p>
+                    <p><strong>Your Answer:</strong> ${userAnswers[i] || 'Unanswered'}</p>
+                    <p><strong>Explanation:</strong> ${q.Explanation || 'No explanation available'}</p>
+                    <hr>
+                </div>
+            `).join('');
+            document.getElementById('answer-sheet-content').innerHTML = answerSheetContent;
+            document.getElementById('answer-sheet').classList.add('active');
+        }
+
+        async function fetchQuestions() {
+            Papa.parse('https://raw.githubusercontent.com/LAKSHAYNISCHAY/Trial/main/EDUTERIAPAGE1.CSV', {
+                download: true,
+                header: true,
+                complete: function(results) {
+                    questions = results.data.map(row => ({
+                        Question: row.Question,
+                        Options: [row['Option a'], row['Option b'], row['Option c'], row['Option d']],
+                        CorrectAnswer: row['Correct Answer'],
+                        Explanation: row.Explanation
+                    }));
+                    displayQuestion(currentQuestionIndex);
+                    startTimer(60 * questions.length); // Assume 1 minute per question
+                },
+                error: function(error) {
+                    console.error('Error fetching CSV data:', error);
+                }
+            });
+        }
+
+        document.getElementById('next-btn').addEventListener('click', () => {
+            currentQuestionIndex++;
+            if (currentQuestionIndex < questions.length) {
+                displayQuestion(currentQuestionIndex);
+            } else {
+                alert('No more questions.');
+            }
+        });
+
+        document.getElementById('back-btn').addEventListener('click', () => {
+            currentQuestionIndex--;
+            if (currentQuestionIndex >= 0) {
+                displayQuestion(currentQuestionIndex);
+            } else {
+                alert('You are at the first question.');
+            }
+        });
+
+        document.getElementById('submit-btn').addEventListener('click', () => {
+            calculateScore();
+            document.getElementById('score-card').classList.add('active');
+            displayAnswerSheet();
+        });
+
+        document.getElementById('retry-btn').addEventListener('click', () => {
+            currentQuestionIndex = 0;
+            userAnswers = [];
+            displayQuestion(currentQuestionIndex);
+            document.getElementById('score-card').classList.remove('active');
+            document.getElementById('answer-sheet').classList.remove('active');
+            startTimer(60 * questions.length); // Restart the timer
+        });
+
+        document.getElementById('download-pdf').addEventListener('click', () => {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.text('Score Card', 10, 10);
+            doc.text(`Correct: ${document.getElementById('correct-count').textContent}`, 10, 20);
+            doc.text(`Incorrect: ${document.getElementById('incorrect-count').textContent}`, 10, 30);
+            doc.text(`Unattempted: ${document.getElementById('unattempted-count').textContent}`, 10, 40);
+            doc.text(`Overall Total Score: ${document.getElementById('overall-total').textContent}`, 10, 50);
+            doc.save('scorecard.pdf');
+        });
+
+        document.getElementById('retry-all-btn').addEventListener('click', () => {
+            location.reload(); // Reload the page to retry all questions
+        });
+
+        fetchQuestions();
+    </script>
+</body>
+</html>
